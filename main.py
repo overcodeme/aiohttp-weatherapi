@@ -2,8 +2,8 @@ from aiohttp import ClientSession, web
 import asyncio
 import json
 
-
 storage = {}
+
 
 async def get_weather(city):
     url = 'http://api.openweathermap.org/data/2.5/weather'
@@ -14,20 +14,55 @@ async def get_weather(city):
             data = await response.json()
             try:
                 return data['weather'][0]['main']
-
-            except KeyError:
+            except (KeyError, json.JSONDecodeError) as err:
+                print(f'Ошибка обработки данных погоды {err}')
                 return 'Нет данных'
-
         else:
-            print('Проверьте правильность введённых данных')
+            print(f'Ошибка запроса погоды: Статус {response.status}')
+            return 'Нет данных'
+
+
+async def translate(text, source='auto', target='en'):
+    url = 'https://ru.libretranslate.com/translate'
+    data = {
+        'q': text,
+        'source': source,
+        'target': target,
+        'format': 'text',
+        'alternatives': 3,
+        'api_key': ''  # Оставьте пустым, если не требуется ключ API
+    }
+    headers = {
+        'Content-Type': 'application/json'
+    }
+
+    async with storage['session'].post(url, json=data, headers=headers) as response:
+        if response.status == 200:
+            response_json = await response.json()
+            try:
+                return response_json['translatedText']
+            except KeyError:
+                print('Ошибка обработки ответа перевода')
+                return text
+        else:
+            print(f'Ошибка запроса перевода: Статус {response.status}')
+            return text
 
 
 async def handle(request):
-    city = request.rel_url.query['city']
-    weather_data = await get_weather(city)
-    result = {'city': city, 'weather': weather_data}
+    city_ru = request.rel_url.query['city']
+    if not city_ru:
+        return web.Response(text=json.dumps({'error': 'Не указан город'}), status=400, content_type='application/json')
 
-    return web.Response(text=json.dumps(result, ensure_ascii=False))
+    city_en = await translate(city_ru, 'ru', 'en')
+    if city_en == city_ru:
+        return web.Response(text=json.dumps({'error': 'Не удалось перевести название города'}), status=500, content_type='application/json')
+
+    weather_en = await get_weather(city_en)
+    weather_ru = await translate(weather_en, 'en', 'ru')
+
+    result = {'Город': city_ru, 'Погода': weather_ru}
+    return web.Response(text=json.dumps(result, ensure_ascii=False), content_type='application/json')
 
 
 async def main():
@@ -46,4 +81,3 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
-
