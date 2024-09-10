@@ -2,13 +2,30 @@ from aiohttp import ClientSession, web
 import asyncio
 import json
 from aiologger.loggers.json import JsonLogger
+from datetime import datetime
+import aiosqlite
 
 
-session = ClientSession()
+storage = {}
+
 logger = JsonLogger.with_default_handlers(
     level = 10,
     serializer_kwargs={'ensure_ascii': False}
 )
+
+
+async def create_table():
+    async with aiosqlite.connect('weather.db') as db:
+        await db.execute('CREATE TABLE IF NOT EXISTS weather_data'
+                            '(date text, city text, weather text)')
+        await db.commit()
+
+
+async def save_to_db(city, weather):
+    async with aiosqlite.connect('weather.db') as db:
+        await db.execute('INSERT INTO weather_data VALUES(?, ?, ?)',
+                         (datetime.now().strftime('%d.%m.%Y')), city, weather)
+        await db.commit()
 
 
 async def get_weather(city):
@@ -16,7 +33,7 @@ async def get_weather(city):
     url = 'http://api.openweathermap.org/data/2.5/weather'
     params = {'q': city, 'APPID': 'fc7ebccb3af53b048a7da5ad3e403215'}
 
-    async with session.get(url=url, params=params) as response:
+    async with storage['session'].get(url=url, params=params) as response:
         if response.status == 200:
             data = await response.json()
             try:
@@ -39,7 +56,7 @@ async def translate(text, source='ru', target='en'):
         'langpair': f'{source}|{target}'
     }
 
-    async with session.get(url, params=params) as response:
+    async with storage['session'].get(url, params=params) as response:
         if response.status == 200:
             try:
                 data = await response.json()
@@ -59,7 +76,6 @@ async def handle(request):
         return web.Response(text=json.dumps({'error': 'Не указан город'}), status=400, content_type='application/json')
 
     city_en = await translate(city_ru, 'ru', 'en')
-    print(f'Перевод названия города: {city_en}')
 
     if city_en == city_ru:
         return web.Response(text=json.dumps({'error': 'Не удалось перевести название города'}), status=500, content_type='application/json')
@@ -67,20 +83,27 @@ async def handle(request):
     weather_en = await get_weather(city_en)
     weather_ru = await translate(weather_en, 'en', 'ru')
 
+    await save_to_db(city_ru, weather_ru)
+
     result = {'Город': city_ru, 'Погода': weather_ru.capitalize()}
     return web.Response(text=json.dumps(result, ensure_ascii=False), content_type='application/json')
 
 
 async def main():
-    app = web.Application()
-    app.add_routes([web.get('/weather', handle)])
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, 'localhost', 8000)
-    await site.start()
+    storage['session'] = ClientSession()
 
-    while True:
-        await asyncio.sleep(10000)
+    async with storage['session']:
+        await create_table()
+        app = web.Application()
+
+        app.add_routes([web.get('/weather', handle)])
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, 'localhost', 8000)
+        await site.start()
+
+        while True:
+            await asyncio.sleep(10000)
 
 
 if __name__ == '__main__':
