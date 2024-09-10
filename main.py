@@ -1,16 +1,22 @@
 from aiohttp import ClientSession, web
 import asyncio
 import json
+from aiologger.loggers.json import JsonLogger
 
 
-storage = {}
+session = ClientSession()
+logger = JsonLogger.with_default_handlers(
+    level = 10,
+    serializer_kwargs={'ensure_ascii': False}
+)
 
 
 async def get_weather(city):
+    await logger.info(f'Поступил запрос на получения погоды города {city}')
     url = 'http://api.openweathermap.org/data/2.5/weather'
     params = {'q': city, 'APPID': 'fc7ebccb3af53b048a7da5ad3e403215'}
 
-    async with storage['session'].get(url=url, params=params) as response:
+    async with session.get(url=url, params=params) as response:
         if response.status == 200:
             data = await response.json()
             try:
@@ -24,6 +30,8 @@ async def get_weather(city):
 
 
 async def translate(text, source='ru', target='en'):
+    await logger.info(f'Поступил запрос на перевода слова {text}')
+
     url = "https://api.mymemory.translated.net/get"
 
     params = {
@@ -31,7 +39,7 @@ async def translate(text, source='ru', target='en'):
         'langpair': f'{source}|{target}'
     }
 
-    async with storage['session'].get(url, params=params) as response:
+    async with session.get(url, params=params) as response:
         if response.status == 200:
             try:
                 data = await response.json()
@@ -64,8 +72,6 @@ async def handle(request):
 
 
 async def main():
-    storage['session'] = ClientSession()
-
     app = web.Application()
     app.add_routes([web.get('/weather', handle)])
     runner = web.AppRunner(app)
