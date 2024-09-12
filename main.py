@@ -1,30 +1,30 @@
+from aiologger.loggers.json import JsonLogger
+from aiologger.handlers.files import AsyncFileHandler
 from aiohttp import ClientSession, web
 import asyncio
 import json
-from aiologger.loggers.json import JsonLogger
 from datetime import datetime
 import aiosqlite
 
 
 storage = {}
 
-logger = JsonLogger.with_default_handlers(
-    level = 10,
-    serializer_kwargs={'ensure_ascii': False}
-)
+logger = JsonLogger(level=10)
+file_handler = AsyncFileHandler(filename='app.log')
+logger.add_handler(file_handler)  # Добавляем обработчик записи в файл
 
 
 async def create_table():
     async with aiosqlite.connect('weather.db') as db:
         await db.execute('CREATE TABLE IF NOT EXISTS weather_data'
-                            '(date text, city text, weather text)')
+                         '(date text, city text, weather text)')
         await db.commit()
 
 
 async def save_to_db(city, weather):
     async with aiosqlite.connect('weather.db') as db:
         await db.execute('INSERT INTO weather_data VALUES(?, ?, ?)',
-                         (datetime.now().strftime('%d.%m.%Y')), city, weather)
+                         (datetime.now().strftime('%d.%m.%Y %H:%m'), city, weather))
         await db.commit()
 
 
@@ -47,7 +47,7 @@ async def get_weather(city):
 
 
 async def translate(text, source='ru', target='en'):
-    await logger.info(f'Поступил запрос на перевода слова {text}')
+    await logger.info(f'Поступил запрос на перевод слова {text}')
 
     url = "https://api.mymemory.translated.net/get"
 
